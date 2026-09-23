@@ -22,6 +22,44 @@ answer.
   The default base is `qwen2.5:7b`; see [Choosing a base model](#choosing-a-base-model)
   if that is too heavy.
 
+## Quick setup
+
+`setup.sh` does everything in the next two sections in one go:
+
+```sh
+git clone https://github.com/xuancongwen/voxtype-llm-wrapper
+cd voxtype-llm-wrapper
+./setup.sh
+```
+
+It checks that Ollama is running and voxtype is 1.0 or newer, pulls the base
+model, builds `voxtype-llm-wrapper`, runs a smoke test, appends a
+`[output.post_process]` block to `~/.config/voxtype/config.toml` (after
+backing the file up), and restarts the `voxtype` user service if one is
+running.
+
+Things it deliberately does not do:
+
+- It never installs Ollama or voxtype. If either is missing it stops and says
+  so.
+- It never overwrites an existing `[output.post_process]` block. If you
+  already have one, it prints it and leaves it to you.
+- If voxtype is running outside systemd, it asks you to restart it yourself.
+
+To build from a different base model without editing the Modelfile, pass the
+model name as the only argument:
+
+```sh
+./setup.sh llama3.2:3b
+```
+
+The script is plain POSIX shell with no dependencies beyond `ollama`,
+`voxtype`, and the usual coreutils, so it should behave the same on Arch,
+Debian, Ubuntu, and Fedora. It has been tested on Arch.
+
+If you would rather do the steps by hand, or want to understand what the
+script did, read on.
+
 ## Generating the model with Ollama
 
 1. Pull the base model:
