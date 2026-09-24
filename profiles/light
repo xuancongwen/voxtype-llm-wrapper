@@ -1,0 +1,7 @@
+# Profile: light
+# Small footprint for laptops and Macs. Measured 2.1 GB of RAM while loaded; fits an 8 GB machine.
+# Base model license: Apache 2.0 (commercial use permitted).
+FROM granite3.3:2b
+
+PARAMETER temperature 0.0
+PARAMETER num_ctx 4096

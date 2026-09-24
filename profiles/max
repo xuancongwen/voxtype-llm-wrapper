@@ -1,0 +1,7 @@
+# Profile: max
+# Best edit quality. Measured 4.9 GB of RAM or VRAM while loaded; plan on a 16 GB machine.
+# Base model license: Apache 2.0 (commercial use permitted).
+FROM qwen2.5:7b
+
+PARAMETER temperature 0.0
+PARAMETER num_ctx 4096
