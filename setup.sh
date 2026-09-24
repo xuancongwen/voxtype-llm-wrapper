@@ -4,7 +4,8 @@
 # Usage: ./setup.sh [--profile NAME] [--model-only] [BASE_MODEL]
 #
 #   --profile NAME  Which profile in profiles/ to build: "max" (Qwen3.5-4B,
-#                   4.9 GB while loaded) or "standard" (Qwen3.5-2B, 2.4 GB).
+#                   4.9 GB while loaded), "standard" (Qwen3.5-2B, 2.4 GB), or
+#                   "fast" (granite3.3:2b, 2.1 GB, lowest latency).
 #                   Defaults to standard on macOS and max everywhere else.
 #   --model-only    Build the Ollama model and stop; do not touch voxtype.
 #                   Implied on macOS, where voxtype does not run.
@@ -18,7 +19,7 @@
 # checks for both and stops with a message if either is missing. It never
 # installs packages and never overwrites an existing post_process block.
 #
-# A profile whose FROM line is a file path (both shipped profiles) also carries
+# A profile whose FROM line is a file path (the max and standard profiles) carries
 # "# gguf: URL" and "# sha256: HASH" lines. The script downloads that file into
 # models/ next to this script if it is missing or its checksum does not match.
 
