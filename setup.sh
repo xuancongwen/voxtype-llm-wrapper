@@ -3,18 +3,24 @@
 #
 # Usage: ./setup.sh [--profile NAME] [--model-only] [BASE_MODEL]
 #
-#   --profile NAME  Which profile in profiles/ to build: "max" (qwen2.5:7b,
-#                   4.9 GB while loaded) or "light" (granite3.3:2b, 2.1 GB).
-#                   Defaults to light on macOS and max everywhere else.
+#   --profile NAME  Which profile in profiles/ to build: "max" (Qwen3.5-4B,
+#                   4.9 GB while loaded) or "standard" (Qwen3.5-2B, 2.4 GB).
+#                   Defaults to standard on macOS and max everywhere else.
 #   --model-only    Build the Ollama model and stop; do not touch voxtype.
 #                   Implied on macOS, where voxtype does not run.
 #   BASE_MODEL      Override the FROM line of the chosen profile for this run
-#                   only (e.g. ./setup.sh gemma3:4b). Nothing in the repo is
+#                   only (e.g. ./setup.sh gemma3:4b). Any TEMPLATE and stop
+#                   tokens in the profile are dropped too, since they belong to
+#                   the profile's own base model. Nothing in the repo is
 #                   modified.
 #
 # Assumes Ollama and voxtype (1.0 or newer) are already installed. The script
 # checks for both and stops with a message if either is missing. It never
 # installs packages and never overwrites an existing post_process block.
+#
+# A profile whose FROM line is a file path (both shipped profiles) also carries
+# "# gguf: URL" and "# sha256: HASH" lines. The script downloads that file into
+# models/ next to this script if it is missing or its checksum does not match.
 
 set -eu
 
@@ -24,6 +30,37 @@ SCRIPT_DIR=$(cd "$(dirname "$0")" && pwd)
 
 info() { printf '==> %s\n' "$*"; }
 die()  { printf 'error: %s\n' "$*" >&2; exit 1; }
+
+# sha256 of a file, using whichever tool the platform has.
+sha256_of() {
+    if command -v sha256sum >/dev/null 2>&1; then sha256sum "$1" | awk '{print $1}'
+    elif command -v shasum >/dev/null 2>&1; then shasum -a 256 "$1" | awk '{print $1}'
+    else echo ""; fi
+}
+
+# fetch_gguf URL DEST SHA256: download DEST if it is missing or its checksum
+# is wrong. Resumes a partial download. An empty SHA256 skips verification.
+fetch_gguf() {
+    url=$1; dest=$2; want=$3
+    if [ -f "$dest" ] && { [ -z "$want" ] || [ "$(sha256_of "$dest")" = "$want" ]; }; then
+        info "Base model weights already present at $dest"
+        return
+    fi
+    command -v curl >/dev/null 2>&1 || die "curl is needed to download $url"
+    mkdir -p "$(dirname "$dest")"
+    info "Downloading base model weights from $url"
+    info "One-time download of a few GB into $(dirname "$dest")"
+    curl -L --fail --progress-bar -C - -o "$dest" "$url" || die "download failed"
+    if [ -n "$want" ]; then
+        have=$(sha256_of "$dest")
+        if [ -z "$have" ]; then
+            info "No sha256 tool found; skipping checksum verification"
+        elif [ "$have" != "$want" ]; then
+            rm -f "$dest"
+            die "checksum mismatch for $dest (got $have, want $want); file removed, re-run to retry"
+        fi
+    fi
+}
 
 # --- Arguments --------------------------------------------------------------
 
@@ -44,7 +81,7 @@ while [ $# -gt 0 ]; do
 done
 
 if [ -z "$PROFILE" ]; then
-    case "$OS" in Darwin) PROFILE=light ;; *) PROFILE=max ;; esac
+    case "$OS" in Darwin) PROFILE=standard ;; *) PROFILE=max ;; esac
 fi
 case "$OS" in Darwin) MODEL_ONLY=1 ;; esac
 
@@ -78,22 +115,40 @@ fi
 
 # --- Build the model --------------------------------------------------------
 
-info "Rendering Modelfiles from system_prompt.txt and profiles/"
+info "Rendering Modelfiles from system_prompt.txt, examples.tsv, and profiles/"
 "$SCRIPT_DIR/gen-modelfiles.sh" >/dev/null
 MODELFILE="$SCRIPT_DIR/Modelfile.$PROFILE"
 
 BASE_MODEL=${BASE_OVERRIDE:-$(awk '/^FROM[[:space:]]/ {print $2; exit}' "$MODELFILE")}
 [ -n "$BASE_MODEL" ] || die "could not determine base model from $MODELFILE"
 
-info "Pulling base model $BASE_MODEL (skips quickly if already present)"
-ollama pull "$BASE_MODEL"
-
 if [ -n "$BASE_OVERRIDE" ]; then
+    info "Pulling base model $BASE_MODEL (skips quickly if already present)"
+    ollama pull "$BASE_MODEL"
     TMP_MODELFILE=$(mktemp)
     trap 'rm -f "$TMP_MODELFILE"' EXIT
-    sed "s|^FROM[[:space:]].*|FROM $BASE_MODEL|" "$MODELFILE" > "$TMP_MODELFILE"
+    # Swap the FROM line and drop the profile's TEMPLATE block and stop tokens,
+    # which are specific to the profile's own base model.
+    awk -v base="$BASE_MODEL" '
+        /^FROM[[:space:]]/  { print "FROM " base; next }
+        /^PARAMETER stop /  { next }
+        /^TEMPLATE """/     { skip = 1; next }
+        skip                { if (/"""[[:space:]]*$/) skip = 0; next }
+        { print }' "$MODELFILE" > "$TMP_MODELFILE"
     BUILD_FROM="$TMP_MODELFILE"
 else
+    case "$BASE_MODEL" in
+        *.gguf)
+            GGUF_URL=$(awk '/^# gguf:/ {print $3; exit}' "$PROFILE_FILE")
+            GGUF_SHA=$(awk '/^# sha256:/ {print $3; exit}' "$PROFILE_FILE")
+            [ -n "$GGUF_URL" ] || die "profile $PROFILE uses a GGUF file but has no '# gguf: URL' line"
+            fetch_gguf "$GGUF_URL" "$SCRIPT_DIR/$BASE_MODEL" "$GGUF_SHA"
+            ;;
+        *)
+            info "Pulling base model $BASE_MODEL (skips quickly if already present)"
+            ollama pull "$BASE_MODEL"
+            ;;
+    esac
     BUILD_FROM="$MODELFILE"
 fi
 
