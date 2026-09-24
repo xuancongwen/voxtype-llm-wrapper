@@ -153,6 +153,14 @@ else
     BUILD_FROM="$MODELFILE"
 fi
 
+# Unload any resident copy of the previous build first. Ollama keeps a model
+# loaded for as long as its keep-alive says, and rebuilding under the same name
+# leaves the old runner holding memory with no name pointing at it.
+if ollama ps 2>/dev/null | grep -q "^$MODEL_NAME"; then
+    info "Unloading the currently loaded $MODEL_NAME"
+    ollama stop "$MODEL_NAME" >/dev/null 2>&1 || true
+fi
+
 info "Building $MODEL_NAME (profile: $PROFILE, base: $BASE_MODEL)"
 ollama create "$MODEL_NAME" -f "$BUILD_FROM"
 
